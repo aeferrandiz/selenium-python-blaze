@@ -1,0 +1,140 @@
+version: '3.8'
+
+services:
+  # Servicio principal para ejecutar todos los tests
+  qa-automation:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: qa-automation-framework
+    environment:
+      - BROWSER=chrome
+      - HEADLESS=true
+      - TEST_SUITE=all
+    volumes:
+      - ./reports:/app/reports
+      - ./screenshots:/app/screenshots
+    command: test
+    networks:
+      - qa-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import selenium; print('OK')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Servicio específico para ejecutar tests con Google Chrome
+  qa-chrome:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: qa-automation-chrome
+    environment:
+      - BROWSER=chrome
+      - HEADLESS=true
+      - TEST_SUITE=all
+    volumes:
+      - ./reports:/app/reports
+      - ./screenshots:/app/screenshots
+    command: test-chrome
+    networks:
+      - qa-network
+    restart: unless-stopped
+
+  # Servicio específico para ejecutar tests con Mozilla Firefox
+  qa-firefox:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: qa-automation-firefox
+    environment:
+      - BROWSER=firefox
+      - HEADLESS=true
+      - TEST_SUITE=all
+    volumes:
+      - ./reports:/app/reports
+      - ./screenshots:/app/screenshots
+    command: test-firefox
+    networks:
+      - qa-network
+    restart: unless-stopped
+
+  # Servicio para ejecutar tests de humo (smoke tests)
+  qa-smoke:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: qa-automation-smoke
+    environment:
+      - BROWSER=chrome
+      - HEADLESS=true
+      - TEST_SUITE=login
+    volumes:
+      - ./reports:/app/reports
+      - ./screenshots:/app/screenshots
+    command: test-smoke
+    networks:
+      - qa-network
+    restart: unless-stopped
+
+  # Servicio para generar reportes de Allure
+  qa-report:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: qa-automation-report
+    volumes:
+      - ./reports:/app/reports
+    command: report
+    networks:
+      - qa-network
+    restart: "no"
+
+  # Servicio para servir reportes de Allure en puerto 8080
+  qa-serve:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: qa-automation-serve
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./reports:/app/reports
+    command: serve
+    networks:
+      - qa-network
+    restart: unless-stopped
+
+  # Servicio para desarrollo con shell interactivo
+  qa-dev:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: qa-automation-dev
+    environment:
+      - BROWSER=chrome
+      - HEADLESS=false
+      - TEST_SUITE=all
+    volumes:
+      - .:/app
+      - ./reports:/app/reports
+      - ./screenshots:/app/screenshots
+    command: shell
+    networks:
+      - qa-network
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+
+# Configuración de red para los servicios
+networks:
+  qa-network:
+    driver: bridge
+
+# Volúmenes para persistir datos
+volumes:
+  reports:
+    driver: local
+  screenshots:
+    driver: local

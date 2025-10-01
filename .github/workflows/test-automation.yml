@@ -1,0 +1,323 @@
+name: E-Commerce Test Automation
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Ejecutar tests diariamente a las 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      browser:
+        description: 'Navegador a usar para las pruebas'
+        required: true
+        default: 'chrome'
+        type: choice
+        options:
+        - chrome
+        - firefox
+        - both
+      test_suite:
+        description: 'Suite de pruebas a ejecutar'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+        - all
+        - smoke
+        - regression
+        - login
+        - products
+        - cart
+        - checkout
+      headless:
+        description: 'Ejecutar en modo headless'
+        required: true
+        default: true
+        type: boolean
+
+env:
+  PYTHON_VERSION: '3.9'
+  HEADLESS: true
+
+jobs:
+  # Job para tests de humo (smoke tests)
+  smoke-tests:
+    name: Smoke Tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event.inputs.test_suite == 'smoke' || github.event.inputs.test_suite == 'all'
+    
+    strategy:
+      matrix:
+        browser: [chrome, firefox]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ env.PYTHON_VERSION }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y wget gnupg software-properties-common
+    
+    - name: Install Chrome
+      if: matrix.browser == 'chrome'
+      run: |
+        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+        echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
+    
+    - name: Install Firefox
+      if: matrix.browser == 'firefox'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y firefox
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Create reports directory
+      run: |
+        mkdir -p reports/screenshots
+        mkdir -p reports/allure-results
+    
+    - name: Run smoke tests on ${{ matrix.browser }}
+      run: |
+        pytest tests/test_login.py::TestLogin::test_successful_login \
+               tests/test_products.py::TestProducts::test_home_page_loading \
+               tests/test_cart.py::TestCart::test_cart_page_loading \
+               --browser=${{ matrix.browser }} \
+               --headless=${{ env.HEADLESS }} \
+               --html=reports/smoke-test-report-${{ matrix.browser }}.html \
+               --self-contained-html \
+               --junitxml=reports/smoke-test-results-${{ matrix.browser }}.xml \
+               --alluredir=reports/allure-results \
+               -v
+    
+    - name: Upload smoke test reports
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: smoke-test-reports-${{ matrix.browser }}
+        path: reports/
+        retention-days: 30
+
+  # Job para tests de regresión
+  regression-tests:
+    name: Regression Tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event.inputs.test_suite == 'regression' || github.event.inputs.test_suite == 'all'
+    needs: smoke-tests
+    
+    strategy:
+      matrix:
+        browser: [chrome, firefox]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ env.PYTHON_VERSION }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y wget gnupg software-properties-common
+    
+    - name: Install Chrome
+      if: matrix.browser == 'chrome'
+      run: |
+        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+        echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
+    
+    - name: Install Firefox
+      if: matrix.browser == 'firefox'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y firefox
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Create reports directory
+      run: |
+        mkdir -p reports/screenshots
+        mkdir -p reports/allure-results
+    
+    - name: Run regression tests on ${{ matrix.browser }}
+      run: |
+        pytest tests/ \
+               --browser=${{ matrix.browser }} \
+               --headless=${{ env.HEADLESS }} \
+               --html=reports/regression-test-report-${{ matrix.browser }}.html \
+               --self-contained-html \
+               --junitxml=reports/regression-test-results-${{ matrix.browser }}.xml \
+               --alluredir=reports/allure-results \
+               -v
+    
+    - name: Upload regression test reports
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: regression-test-reports-${{ matrix.browser }}
+        path: reports/
+        retention-days: 30
+
+  # Job para tests específicos por funcionalidad
+  functional-tests:
+    name: Functional Tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_suite != 'all'
+    
+    strategy:
+      matrix:
+        browser: [chrome, firefox]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ env.PYTHON_VERSION }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y wget gnupg software-properties-common
+    
+    - name: Install Chrome
+      if: matrix.browser == 'chrome'
+      run: |
+        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+        echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
+    
+    - name: Install Firefox
+      if: matrix.browser == 'firefox'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y firefox
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Create reports directory
+      run: |
+        mkdir -p reports/screenshots
+        mkdir -p reports/allure-results
+    
+    - name: Run functional tests on ${{ matrix.browser }}
+      run: |
+        pytest tests/test_${{ github.event.inputs.test_suite }}.py \
+               --browser=${{ matrix.browser }} \
+               --headless=${{ github.event.inputs.headless }} \
+               --html=reports/functional-test-report-${{ matrix.browser }}.html \
+               --self-contained-html \
+               --junitxml=reports/functional-test-results-${{ matrix.browser }}.xml \
+               --alluredir=reports/allure-results \
+               -v
+    
+    - name: Upload functional test reports
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: functional-test-reports-${{ matrix.browser }}
+        path: reports/
+        retention-days: 30
+
+  # Job para generar reportes de Allure
+  allure-report:
+    name: Generate Allure Report
+    runs-on: ubuntu-latest
+    needs: [smoke-tests, regression-tests]
+    if: always()
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download all test results
+      uses: actions/download-artifact@v3
+      with:
+        path: all-results
+    
+    - name: Install Allure
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y wget
+        wget https://github.com/allure-framework/allure2/releases/download/2.24.1/allure-2.24.1.tgz
+        tar -zxf allure-2.24.1.tgz
+        sudo mv allure-2.24.1 /opt/allure
+        sudo ln -s /opt/allure/bin/allure /usr/local/bin/allure
+    
+    - name: Generate Allure Report
+      run: |
+        mkdir -p allure-results
+        find all-results -name "allure-results" -type d -exec cp -r {}/* allure-results/ \;
+        allure generate allure-results --clean -o allure-report
+    
+    - name: Deploy Allure Report
+      uses: peaceiris/actions-gh-pages@v3
+      if: github.ref == 'refs/heads/main'
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: allure-report
+        destination_dir: test-reports
+
+  # Job para notificaciones
+  notify:
+    name: Send Notifications
+    runs-on: ubuntu-latest
+    needs: [smoke-tests, regression-tests, allure-report]
+    if: always()
+    
+    steps:
+    - name: Notify on Success
+      if: needs.smoke-tests.result == 'success' && needs.regression-tests.result == 'success'
+      run: |
+        echo "✅ All tests passed successfully!"
+        # Aquí puedes agregar notificaciones a Slack, email, etc.
+    
+    - name: Notify on Failure
+      if: needs.smoke-tests.result == 'failure' || needs.regression-tests.result == 'failure'
+      run: |
+        echo "❌ Some tests failed. Please check the reports."
+        # Aquí puedes agregar notificaciones de error
+
+  # Job para limpieza
+  cleanup:
+    name: Cleanup
+    runs-on: ubuntu-latest
+    needs: [smoke-tests, regression-tests, functional-tests, allure-report]
+    if: always()
+    
+    steps:
+    - name: Cleanup old artifacts
+      run: |
+        echo "Cleaning up old artifacts..."
+        # Aquí puedes agregar lógica para limpiar artefactos antiguos
